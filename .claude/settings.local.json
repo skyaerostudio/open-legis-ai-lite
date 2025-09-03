@@ -30,7 +30,10 @@
       "Bash(npm run lint)",
       "Bash(npm run lint:*)",
       "Bash(npm test)",
-      "Bash(git init:*)"
+      "Bash(git init:*)",
+      "Bash(npx tsc:*)",
+      "Bash(curl:*)",
+      "mcp__archon__session_info"
     ],
     "deny": [],
     "ask": []

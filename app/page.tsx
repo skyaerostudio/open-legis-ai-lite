@@ -3,11 +3,12 @@
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Upload, FileText, Search, Share2 } from 'lucide-react'
-import FileUpload from '@/components/upload/FileUpload'
+import ExampleDemo from '@/components/demo/ExampleDemo'
+import { sampleAnalysis } from '@/lib/demo-data'
 import { useState } from 'react'
 
 export default function HomePage() {
-  const [showUpload, setShowUpload] = useState(false);
+  const [showDemo, setShowDemo] = useState(false);
 
   return (
     <div className="container py-8 md:py-12 lg:py-16">
@@ -24,11 +25,20 @@ export default function HomePage() {
         </p>
         
         <div className="mt-8">
-          <Button size="lg" className="mr-4" onClick={() => setShowUpload(true)}>
+          <Button size="lg" className="mr-4" onClick={() => {
+            const uploadSection = document.getElementById('upload-section');
+            if (uploadSection) {
+              uploadSection.scrollIntoView({ 
+                behavior: 'smooth',
+                block: 'start',
+
+              });
+            }
+          }}>
             <Upload className="mr-2 h-5 w-5" />
             Mulai Analisis Dokumen
           </Button>
-          <Button variant="outline" size="lg">
+          <Button variant="outline" size="lg" onClick={() => setShowDemo(true)}>
             Lihat Contoh
           </Button>
         </div>
@@ -78,31 +88,24 @@ export default function HomePage() {
         </div>
       </div>
 
-      {/* Upload Section */}
-      {showUpload && (
-        <div className="mx-auto mt-16 max-w-4xl">
-          <FileUpload 
-            onUploadComplete={(result) => {
-              console.log('Upload completed:', result);
-              // Could redirect to document page or show success message
-              window.location.href = `/${result.document.id}`;
-            }}
-            onUploadError={(error) => {
-              console.error('Upload error:', error);
-            }}
-          />
-        </div>
+
+      {/* Demo Modal */}
+      {showDemo && (
+        <ExampleDemo 
+          isOpen={showDemo}
+          onClose={() => setShowDemo(false)}
+          demoData={sampleAnalysis}
+        />
       )}
       
-      {!showUpload && (
-        <div className="mx-auto mt-16 max-w-4xl">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-center">Unggah Dokumen</CardTitle>
-              <CardDescription className="text-center">
-                Mendukung file PDF dan HTML hingga 50MB
-              </CardDescription>
-            </CardHeader>
+      <div className="mx-auto mt-16 max-w-4xl scroll-mt-12 md:scroll-mt-18" id="upload-section">
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-center">Unggah Dokumen</CardTitle>
+            <CardDescription className="text-center">
+              Mendukung file PDF dan HTML hingga 50MB
+            </CardDescription>
+          </CardHeader>
             <CardContent className="space-y-4">
               <div className="flex flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 p-12 text-center">
                 <Upload className="h-12 w-12 text-muted-foreground" />
@@ -112,7 +115,9 @@ export default function HomePage() {
                 <p className="mt-2 text-sm text-muted-foreground">
                   Format yang didukung: PDF, HTML (maksimal 50MB)
                 </p>
-                <Button className="mt-4" variant="outline" onClick={() => setShowUpload(true)}>
+                <Button className="mt-4" variant="outline" onClick={() => {
+                  // This could trigger a file picker dialog or other upload functionality
+                }}>
                   Pilih File
                 </Button>
               </div>
@@ -126,8 +131,7 @@ export default function HomePage() {
               </div>
             </CardContent>
           </Card>
-        </div>
-      )}
+      </div>
 
       {/* Process Overview */}
       <div className="mx-auto mt-16 max-w-4xl">
