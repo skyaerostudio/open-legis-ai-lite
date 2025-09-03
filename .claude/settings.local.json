@@ -1,0 +1,38 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(claude mcp add:*)",
+      "mcp__archon__list_projects",
+      "mcp__archon__update_project",
+      "mcp__archon__health_check",
+      "mcp__archon__get_available_sources",
+      "mcp__archon__perform_rag_query",
+      "mcp__archon__search_code_examples",
+      "mcp__archon__create_task",
+      "mcp__archon__update_task",
+      "mcp__archon__list_tasks",
+      "Bash(tree:*)",
+      "mcp__archon__create_project",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:akoskm.com)",
+      "Bash(npx create-next-app:*)",
+      "Bash(npm install)",
+      "Bash(npm run type-check:*)",
+      "Bash(npm run build:*)",
+      "Bash(timeout 15 npm run dev)",
+      "Bash(npx supabase:*)",
+      "mcp__archon__get_project",
+      "mcp__archon__get_task",
+      "Bash(npm run dev:*)",
+      "Bash(npx shadcn@latest add:*)",
+      "mcp__archon__get_project_features",
+      "Bash(npm run lint)",
+      "Bash(npm run lint:*)",
+      "Bash(npm test)",
+      "Bash(git init:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

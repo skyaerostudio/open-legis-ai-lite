@@ -1,0 +1,386 @@
+import { createClient as createSupabaseClient } from '@supabase/supabase-js'
+
+// Types for our database schema
+export interface Database {
+  public: {
+    Tables: {
+      documents: {
+        Row: {
+          id: string
+          title: string
+          source_url: string | null
+          kind: string | null
+          jurisdiction: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          title: string
+          source_url?: string | null
+          kind?: string | null
+          jurisdiction?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          title?: string
+          source_url?: string | null
+          kind?: string | null
+          jurisdiction?: string | null
+          created_at?: string
+        }
+      }
+      document_versions: {
+        Row: {
+          id: string
+          document_id: string
+          version_label: string
+          storage_path: string
+          pages: number | null
+          processing_status: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          document_id: string
+          version_label: string
+          storage_path: string
+          pages?: number | null
+          processing_status?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          document_id?: string
+          version_label?: string
+          storage_path?: string
+          pages?: number | null
+          processing_status?: string
+          created_at?: string
+        }
+      }
+      clauses: {
+        Row: {
+          id: string
+          version_id: string
+          clause_ref: string | null
+          text: string
+          page_from: number | null
+          page_to: number | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          version_id: string
+          clause_ref?: string | null
+          text: string
+          page_from?: number | null
+          page_to?: number | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          version_id?: string
+          clause_ref?: string | null
+          text?: string
+          page_from?: number | null
+          page_to?: number | null
+          created_at?: string
+        }
+      }
+      embeddings: {
+        Row: {
+          id: string
+          clause_id: string
+          vector: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          clause_id: string
+          vector: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          clause_id?: string
+          vector?: string
+          created_at?: string
+        }
+      }
+      diffs: {
+        Row: {
+          id: string
+          v_from: string | null
+          v_to: string | null
+          clause_ref: string | null
+          change_kind: string
+          score: number | null
+          diff_data: any | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          v_from?: string | null
+          v_to?: string | null
+          clause_ref?: string | null
+          change_kind: string
+          score?: number | null
+          diff_data?: any | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          v_from?: string | null
+          v_to?: string | null
+          clause_ref?: string | null
+          change_kind?: string
+          score?: number | null
+          diff_data?: any | null
+          created_at?: string
+        }
+      }
+      conflicts: {
+        Row: {
+          id: string
+          version_id: string
+          law_ref: string
+          overlap_score: number
+          excerpt: string
+          cite_json: any | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          version_id: string
+          law_ref: string
+          overlap_score: number
+          excerpt: string
+          cite_json?: any | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          version_id?: string
+          law_ref?: string
+          overlap_score?: number
+          excerpt?: string
+          cite_json?: any | null
+          created_at?: string
+        }
+      }
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      search_similar_clauses: {
+        Args: {
+          query_embedding: string
+          match_threshold?: number
+          match_count?: number
+        }
+        Returns: {
+          clause_id: string
+          text: string
+          similarity: number
+          clause_ref: string
+          law_reference: string
+          law_title: string
+          source_url: string
+        }[]
+      }
+      update_processing_status: {
+        Args: {
+          version_id_param: string
+          new_status: string
+        }
+        Returns: void
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
+}
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_KEY
+
+if (!supabaseUrl) {
+  throw new Error('Missing NEXT_PUBLIC_SUPABASE_URL environment variable')
+}
+
+if (!supabaseServiceKey) {
+  throw new Error('Missing SUPABASE_SERVICE_KEY environment variable')
+}
+
+// Client for server-side operations (uses service key)
+export function createClient() {
+  return createSupabaseClient<Database>(supabaseUrl, supabaseServiceKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false
+    }
+  })
+}
+
+// Client for client-side operations (uses anon key)
+export function createBrowserClient() {
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  
+  if (!supabaseAnonKey) {
+    throw new Error('Missing NEXT_PUBLIC_SUPABASE_ANON_KEY environment variable')
+  }
+
+  return createSupabaseClient<Database>(supabaseUrl, supabaseAnonKey, {
+    auth: {
+      autoRefreshToken: true,
+      persistSession: true
+    }
+  })
+}
+
+// Helper functions for common operations
+export async function uploadDocument(file: File, fileName: string) {
+  const supabase = createClient()
+  
+  const { data, error } = await supabase.storage
+    .from('documents')
+    .upload(fileName, file, {
+      cacheControl: '3600',
+      upsert: false
+    })
+
+  if (error) {
+    throw new Error(`Upload failed: ${error.message}`)
+  }
+
+  return data
+}
+
+export async function createDocumentRecord(
+  title: string, 
+  kind?: string, 
+  sourceUrl?: string
+) {
+  const supabase = createClient()
+  
+  const { data, error } = await supabase
+    .from('documents')
+    .insert({
+      title,
+      kind,
+      source_url: sourceUrl
+    })
+    .select()
+    .single()
+
+  if (error) {
+    throw new Error(`Failed to create document: ${error.message}`)
+  }
+
+  return data
+}
+
+export async function createVersionRecord(
+  documentId: string,
+  versionLabel: string,
+  storagePath: string,
+  pages?: number
+) {
+  const supabase = createClient()
+  
+  const { data, error } = await supabase
+    .from('document_versions')
+    .insert({
+      document_id: documentId,
+      version_label: versionLabel,
+      storage_path: storagePath,
+      pages,
+      processing_status: 'pending'
+    })
+    .select()
+    .single()
+
+  if (error) {
+    throw new Error(`Failed to create version: ${error.message}`)
+  }
+
+  return data
+}
+
+export async function updateProcessingStatus(
+  versionId: string, 
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+) {
+  const supabase = createClient()
+  
+  const { error } = await supabase.rpc('update_processing_status', {
+    version_id_param: versionId,
+    new_status: status
+  })
+
+  if (error) {
+    throw new Error(`Failed to update status: ${error.message}`)
+  }
+}
+
+export async function insertClauses(clauses: Array<{
+  version_id: string
+  clause_ref?: string
+  text: string
+  page_from?: number
+  page_to?: number
+}>) {
+  const supabase = createClient()
+  
+  const { data, error } = await supabase
+    .from('clauses')
+    .insert(clauses)
+    .select()
+
+  if (error) {
+    throw new Error(`Failed to insert clauses: ${error.message}`)
+  }
+
+  return data
+}
+
+export async function insertEmbedding(clauseId: string, vector: number[]) {
+  const supabase = createClient()
+  
+  const { error } = await supabase
+    .from('embeddings')
+    .insert({
+      clause_id: clauseId,
+      vector: JSON.stringify(vector)
+    })
+
+  if (error) {
+    throw new Error(`Failed to insert embedding: ${error.message}`)
+  }
+}
+
+export async function searchSimilarClauses(
+  queryEmbedding: number[],
+  matchThreshold: number = 0.7,
+  matchCount: number = 5
+) {
+  const supabase = createClient()
+  
+  const { data, error } = await supabase.rpc('search_similar_clauses', {
+    query_embedding: JSON.stringify(queryEmbedding),
+    match_threshold: matchThreshold,
+    match_count: matchCount
+  })
+
+  if (error) {
+    throw new Error(`Search failed: ${error.message}`)
+  }
+
+  return data
+}
