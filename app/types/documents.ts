@@ -5,5 +5,7 @@ export type {
   Clause,
   ProcessingStatus,
   DocumentUpload,
-  AnalysisProgress
+  AnalysisProgress,
+  UploadProgress,
+  ProcessingStep
 } from './database'

@@ -1,4 +1,7 @@
--- Update the similarity search function to support excluding specific versions
+-- Drop the existing function first to avoid conflicts
+DROP FUNCTION IF EXISTS search_similar_clauses;
+
+-- Create updated similarity search function with new signature
 CREATE OR REPLACE FUNCTION search_similar_clauses(
     query_embedding vector(1536),
     similarity_threshold float DEFAULT 0.7,
@@ -6,12 +9,12 @@ CREATE OR REPLACE FUNCTION search_similar_clauses(
     exclude_version_id uuid DEFAULT NULL
 )
 RETURNS TABLE (
-    id text,
+    clause_id uuid,
     text text,
+    similarity float,
     clause_ref text,
-    document_title text,
     law_reference text,
-    similarity_score float,
+    law_title text,
     source_url text
 )
 LANGUAGE plpgsql
@@ -19,13 +22,13 @@ AS $$
 BEGIN
     RETURN QUERY
     SELECT 
-        c.id::text,
+        c.id as clause_id,
         c.text,
-        c.clause_ref,
-        d.title as document_title,
-        d.title as law_reference,
         -- Convert cosine distance to similarity score (0-1, higher = more similar)
-        (1 - (e.vector <=> query_embedding)) as similarity_score,
+        (1 - (e.vector <=> query_embedding)) as similarity,
+        c.clause_ref,
+        d.title as law_reference,
+        d.title as law_title,
         d.source_url
     FROM clauses c
     JOIN embeddings e ON c.id = e.clause_id

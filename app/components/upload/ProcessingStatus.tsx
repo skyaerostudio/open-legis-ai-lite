@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Progress } from '@/components/ui/progress';
+import { useProcessingStatus } from '@/hooks/useProcessingStatus';
 import { 
   Clock, 
   CheckCircle, 
@@ -35,6 +36,9 @@ export default function ProcessingStatus({
   onError, 
   className = '' 
 }: ProcessingStatusProps) {
+  // Use real-time processing status hook
+  const { status: processingStatus, documentId, error: processingError, isSubscribed, isPolling } = useProcessingStatus(versionId);
+  
   const [overallStatus, setOverallStatus] = useState<'processing' | 'completed' | 'failed'>('processing');
   const [currentStage, setCurrentStage] = useState(0);
   const [stages, setStages] = useState<ProcessingStage[]>([
@@ -82,89 +86,70 @@ export default function ProcessingStatus({
     return () => clearInterval(timer);
   }, [startTime]);
 
-  // Poll for processing updates
+  // Handle real-time processing status updates
   useEffect(() => {
-    let pollInterval: NodeJS.Timeout;
-    let stageUpdateInterval: NodeJS.Timeout;
+    if (processingError) {
+      // Handle processing error
+      setStages(prev => prev.map(stage => ({
+        ...stage,
+        status: stage.status === 'processing' ? 'failed' as const : stage.status
+      })));
+      setOverallStatus('failed');
+      onError?.(processingError);
+      return;
+    }
 
-    const pollStatus = async () => {
-      try {
-        const response = await fetch(`/api/process?version_id=${versionId}`);
-        const data = await response.json();
-
-        if (data.status === 'completed') {
-          // Complete all stages
-          setStages(prev => prev.map(stage => ({
-            ...stage,
-            status: 'completed' as const,
-            progress: 100
-          })));
-          setOverallStatus('completed');
-          clearInterval(pollInterval);
-          clearInterval(stageUpdateInterval);
-          onComplete?.(data);
-          
-        } else if (data.status === 'failed') {
-          // Mark current stage as failed
-          setStages(prev => prev.map((stage, index) => ({
-            ...stage,
-            status: index === currentStage ? 'failed' as const : stage.status
-          })));
-          setOverallStatus('failed');
-          clearInterval(pollInterval);
-          clearInterval(stageUpdateInterval);
-          onError?.('Processing failed');
-        }
-        
-      } catch (error) {
-        console.error('Status polling error:', error);
-      }
-    };
-
-    // Start polling every 3 seconds
-    pollInterval = setInterval(pollStatus, 3000);
-
-    // Simulate stage progression (since we don't have granular status)
-    stageUpdateInterval = setInterval(() => {
+    // Update stages based on actual processing status
+    if (processingStatus === 'completed') {
+      // Complete all stages
+      setStages(prev => prev.map(stage => ({
+        ...stage,
+        status: 'completed' as const,
+        progress: 100
+      })));
+      setOverallStatus('completed');
+      onComplete?.({ documentId, versionId });
+      
+    } else if (processingStatus === 'processing') {
+      setOverallStatus('processing');
+      
+      // Update stages to show realistic progression
       setStages(prev => {
         const newStages = [...prev];
-        const current = currentStage;
-
-        if (current < newStages.length && overallStatus === 'processing') {
-          // Update current stage progress
-          if (newStages[current].status === 'processing') {
-            newStages[current].progress = Math.min(
-              (newStages[current].progress || 0) + Math.random() * 15,
-              90
-            );
-
-            // Move to next stage when current is near completion
-            if ((newStages[current].progress || 0) > 80 && Math.random() > 0.7) {
-              newStages[current].status = 'completed';
-              newStages[current].progress = 100;
-              
-              // Start next stage
-              if (current + 1 < newStages.length) {
-                newStages[current + 1].status = 'processing';
-                newStages[current + 1].progress = 10;
-                setCurrentStage(current + 1);
-              }
-            }
+        
+        // When actually processing, show download as completed and others as processing
+        newStages[0].status = 'completed'; // Download completed
+        newStages[0].progress = 100;
+        
+        // Show other stages as processing
+        for (let i = 1; i < newStages.length; i++) {
+          if (newStages[i].status === 'pending') {
+            newStages[i].status = 'processing';
+            newStages[i].progress = 20;
           }
         }
-
+        
         return newStages;
       });
-    }, 1500);
-
-    // Initial call
-    pollStatus();
-
-    return () => {
-      clearInterval(pollInterval);
-      clearInterval(stageUpdateInterval);
-    };
-  }, [versionId, currentStage, overallStatus, onComplete, onError]);
+      
+    } else if (processingStatus === 'pending') {
+      // Reset to initial state
+      setStages(prev => prev.map((stage, index) => ({
+        ...stage,
+        status: index === 0 ? 'processing' as const : 'pending' as const,
+        progress: index === 0 ? 0 : undefined
+      })));
+      setCurrentStage(0);
+      setOverallStatus('processing');
+    } else if (processingStatus === 'failed') {
+      setStages(prev => prev.map(stage => ({
+        ...stage,
+        status: stage.status === 'processing' ? 'failed' as const : stage.status
+      })));
+      setOverallStatus('failed');
+      onError?.('Processing failed');
+    }
+  }, [processingStatus, processingError, onComplete, onError, documentId, versionId]);
 
   // Estimate time remaining
   useEffect(() => {
@@ -259,6 +244,16 @@ export default function ProcessingStatus({
             {estimatedTimeRemaining && (
               <span>~{formatTime(estimatedTimeRemaining)} remaining</span>
             )}
+          </div>
+          
+          {/* Connection Status */}
+          <div className="flex justify-between items-center text-xs">
+            <span className="text-muted-foreground">
+              Status: {isSubscribed ? '🔵 Real-time' : isPolling ? '🟡 Polling' : '🔴 Connecting...'}
+            </span>
+            <span className="text-muted-foreground">
+              ID: {versionId?.slice(-8)}
+            </span>
           </div>
         </div>
 

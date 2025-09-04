@@ -34,7 +34,18 @@
       "Bash(npx tsc:*)",
       "Bash(curl:*)",
       "mcp__archon__session_info",
-      "Bash(npx eslint:*)"
+      "Bash(npx eslint:*)",
+      "Bash(npm install:*)",
+      "Read(/C:\\Users\\ryang\\Documents\\SkyAero Studio\\Projects\\open-legis-ai-lite\\initial/**)",
+      "Read(/C:\\Users\\ryang\\Documents\\SkyAero Studio\\Projects\\open-legis-ai-lite\\initial/**)",
+      "Read(/C:\\Users\\ryang\\Documents\\SkyAero Studio\\Projects\\open-legis-ai-lite\\app\\components\\upload/**)",
+      "Read(/C:\\Users\\ryang\\Documents\\SkyAero Studio\\Projects\\open-legis-ai-lite\\app\\hooks/**)",
+      "Read(/C:\\Users\\ryang\\Documents\\SkyAero Studio\\Projects\\open-legis-ai-lite\\app\\api\\upload/**)",
+      "Read(/C:\\Users\\ryang\\Documents\\SkyAero Studio\\Projects\\open-legis-ai-lite\\app\\lib/**)",
+      "Read(/C:\\Users\\ryang\\Documents\\SkyAero Studio\\Projects\\open-legis-ai-lite\\app\\lib/**)",
+      "Read(/C:\\Users\\ryang\\Documents\\SkyAero Studio\\Projects\\open-legis-ai-lite\\supabase\\migrations/**)",
+      "Read(/C:\\Users\\ryang\\Documents\\SkyAero Studio\\Projects\\open-legis-ai-lite\\app\\types/**)",
+      "Read(/C:\\Users\\ryang\\Documents\\SkyAero Studio\\Projects\\open-legis-ai-lite\\supabase\\migrations/**)"
     ],
     "deny": [],
     "ask": []

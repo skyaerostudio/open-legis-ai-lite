@@ -130,10 +130,12 @@ export async function POST(request: NextRequest) {
       console.log(`Version created: ${version.id}`);
 
       // Trigger background processing (async, don't wait)
-      const baseUrl = process.env.NEXT_PUBLIC_BASE_URL || 
-                     request.headers.get('origin') || 
-                     'http://localhost:3000';
+      const baseUrl = request.headers.get('origin') || 
+                     process.env.NEXT_PUBLIC_BASE_URL || 
+                     'http://localhost:3002';
 
+      console.log(`Triggering background processing at: ${baseUrl}/api/process`);
+      
       fetch(`${baseUrl}/api/process`, {
         method: 'POST',
         headers: { 
@@ -141,6 +143,12 @@ export async function POST(request: NextRequest) {
           'User-Agent': 'internal-processing'
         },
         body: JSON.stringify({ version_id: version.id })
+      }).then(response => {
+        if (response.ok) {
+          console.log('Background processing triggered successfully');
+        } else {
+          console.error('Background processing trigger failed with status:', response.status);
+        }
       }).catch(error => {
         console.error('Background processing trigger failed:', error);
         // Mark version as failed to process

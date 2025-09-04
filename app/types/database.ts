@@ -86,3 +86,20 @@ export interface AnalysisProgress {
   current_step: string
   estimated_completion?: Date
 }
+
+// Upload progress types
+export interface UploadProgress {
+  fileIndex: number
+  fileName: string
+  progress: number // 0-100
+  status: 'uploading' | 'uploaded' | 'error'
+  versionId?: string
+  error?: string
+}
+
+export interface ProcessingStep {
+  id: string
+  name: string
+  status: 'pending' | 'processing' | 'completed' | 'failed'
+  progress?: number
+}
