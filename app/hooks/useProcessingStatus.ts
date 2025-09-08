@@ -179,6 +179,186 @@ export const useProcessingStatus = (versionId?: string): UseProcessingStatusRetu
 };
 
 // Hook for monitoring multiple versions (useful for batch uploads)
+// Hook for monitoring job-based processing status (new system)
+export const useJobProcessingStatus = (jobId?: string): UseProcessingStatusReturn => {
+  const [status, setStatus] = useState<ProcessingStatus>('pending');
+  const [documentId, setDocumentId] = useState<string>();
+  const [error, setError] = useState<string>();
+  const [isSubscribed, setIsSubscribed] = useState(false);
+  const [isPolling, setIsPolling] = useState(false);
+  const router = useRouter();
+  const pollingIntervalRef = useRef<NodeJS.Timeout>();
+  const lastStatusUpdateRef = useRef<number>(Date.now());
+  
+  // Polling function to check job status via API
+  const pollJobStatus = async (jobIdToCheck: string) => {
+    try {
+      const response = await fetch(`/api/jobs/${jobIdToCheck}/status`);
+      if (response.ok) {
+        const data = await response.json();
+        console.log('Job polling status update:', data);
+        
+        setStatus(data.status as ProcessingStatus);
+        lastStatusUpdateRef.current = Date.now();
+        
+        // Handle completion
+        if (data.status === 'completed') {
+          console.log('Job processing completed via polling, navigating to results:', jobIdToCheck);
+          setIsPolling(false);
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+          }
+          setTimeout(() => {
+            router.push(`/results/${jobIdToCheck}`);
+          }, 1000);
+          return false; // Stop polling
+        }
+        
+        // Handle error
+        if (data.status === 'failed') {
+          setError(data.error_message || 'Job processing failed. Please try again.');
+          setIsPolling(false);
+          if (pollingIntervalRef.current) {
+            clearInterval(pollingIntervalRef.current);
+          }
+          return false; // Stop polling
+        }
+        
+        return true; // Continue polling if still processing
+      }
+    } catch (error) {
+      console.error('Job polling error:', error);
+      // Continue polling on network errors
+    }
+    return true;
+  };
+  
+  // Start polling as fallback
+  const startJobPolling = (jobIdToCheck: string) => {
+    if (pollingIntervalRef.current) return; // Already polling
+    
+    console.log('Starting job polling fallback for:', jobIdToCheck);
+    setIsPolling(true);
+    
+    pollingIntervalRef.current = setInterval(async () => {
+      const shouldContinue = await pollJobStatus(jobIdToCheck);
+      if (!shouldContinue && pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = undefined;
+      }
+    }, 2000); // Poll every 2 seconds
+  };
+  
+  useEffect(() => {
+    if (!jobId) {
+      setStatus('pending');
+      setIsSubscribed(false);
+      setIsPolling(false);
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = undefined;
+      }
+      return;
+    }
+    
+    console.log('Setting up job processing status monitoring for:', jobId);
+    
+    // Initialize with current status
+    pollJobStatus(jobId);
+    
+    // Try real-time subscription first
+    let channel: any;
+    try {
+      const supabase = require('@/lib/supabase-realtime').createRealtimeClient();
+      
+      channel = supabase
+        .channel(`job-status-${jobId}`)
+        .on('postgres_changes', 
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'service_jobs',
+            filter: `id=eq.${jobId}`
+          },
+          (payload: any) => {
+            console.log('Real-time job status update:', payload);
+            
+            const updatedJob = payload.new;
+            setStatus(updatedJob.status as ProcessingStatus);
+            lastStatusUpdateRef.current = Date.now();
+            
+            // Stop polling if real-time works
+            if (pollingIntervalRef.current) {
+              clearInterval(pollingIntervalRef.current);
+              pollingIntervalRef.current = undefined;
+              setIsPolling(false);
+            }
+            
+            // Handle completion
+            if (updatedJob.status === 'completed') {
+              console.log('Job processing completed via real-time, navigating to results:', jobId);
+              setTimeout(() => {
+                router.push(`/results/${jobId}`);
+              }, 1000);
+            }
+            
+            // Handle error
+            if (updatedJob.status === 'failed') {
+              setError(updatedJob.error_message || 'Job processing failed. Please try again.');
+            }
+          })
+        .subscribe((status: string) => {
+          console.log('Job subscription status:', status);
+          setIsSubscribed(status === 'SUBSCRIBED');
+        });
+      
+    } catch (error) {
+      console.error('Real-time job subscription failed:', error);
+      setIsSubscribed(false);
+    }
+    
+    // Start polling as fallback after 5 seconds if no real-time updates
+    const fallbackTimer = setTimeout(() => {
+      const timeSinceLastUpdate = Date.now() - lastStatusUpdateRef.current;
+      if (timeSinceLastUpdate > 4000 && status !== 'completed' && status !== 'failed') {
+        console.log('No recent job updates, starting polling fallback');
+        startJobPolling(jobId);
+      }
+    }, 5000);
+    
+    // Cleanup function
+    return () => {
+      console.log('Cleaning up job processing status monitoring');
+      
+      clearTimeout(fallbackTimer);
+      
+      if (channel) {
+        try {
+          channel.unsubscribe();
+        } catch (error) {
+          console.error('Error unsubscribing from job channel:', error);
+        }
+      }
+      
+      if (pollingIntervalRef.current) {
+        clearInterval(pollingIntervalRef.current);
+        pollingIntervalRef.current = undefined;
+      }
+      
+      setIsSubscribed(false);
+      setIsPolling(false);
+    };
+  }, [jobId, router, status]);
+  
+  return { 
+    status, 
+    documentId, 
+    error, 
+    isSubscribed,
+    isPolling
+  };
+};
+
 export const useMultipleProcessingStatus = (versionIds: string[]) => {
   const [statusMap, setStatusMap] = useState<Record<string, ProcessingStatus>>({});
   const [isSubscribed, setIsSubscribed] = useState(false);

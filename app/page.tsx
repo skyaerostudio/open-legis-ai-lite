@@ -13,7 +13,7 @@ import { serviceConfigs } from '@/components/home/serviceConfig'
 
 export default function HomePage() {
   const [showDemo, setShowDemo] = useState(false);
-  const { selectedService, selectService } = useServiceSelection();
+  const { selectedService, setSelectedService } = useServiceSelection();
   
   const selectedServiceConfig = serviceConfigs.find(config => config.id === selectedService);
 
@@ -56,7 +56,7 @@ export default function HomePage() {
         <ServiceSelector 
           services={serviceConfigs}
           selectedService={selectedService}
-          onServiceSelect={selectService}
+          onServiceSelect={setSelectedService}
         />
       </div>
 

@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase';
+import type { ServiceTypeUnion } from '@/types/processing';
+import type { Document, DocumentVersion } from '@/types/database';
 
 // Configure maximum file size (50MB)
 const MAX_FILE_SIZE = 50 * 1024 * 1024;
@@ -10,139 +12,226 @@ const ALLOWED_FILE_TYPES = [
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
 ];
 
+// Service type validation
+type ServiceValidationType = 'ringkasan' | 'konflik' | 'perubahan';
+
+interface UploadRequest {
+  service_type: ServiceValidationType;
+  file?: File;
+  file1?: File;
+  file2?: File;
+  title?: string;
+  kind?: string;
+  jurisdiction?: string;
+}
+
+interface UploadResponse {
+  success: boolean;
+  message: string;
+  job_id?: string;
+  documents?: Document[];
+  versions?: DocumentVersion[];
+  service_type?: ServiceValidationType;
+  error?: string;
+}
+
 export async function POST(request: NextRequest) {
-  console.log('File upload request received');
+  console.log('Multi-service file upload request received');
 
   try {
     // Parse form data
     const formData = await request.formData();
-    const file = formData.get('file') as File;
+    const serviceType = formData.get('service_type') as ServiceValidationType;
     const title = formData.get('title') as string;
     const kind = formData.get('kind') as string;
     const jurisdiction = formData.get('jurisdiction') as string;
 
-    // Validate file presence
-    if (!file) {
+    // Validate service type
+    if (!serviceType || !['ringkasan', 'konflik', 'perubahan'].includes(serviceType)) {
       return NextResponse.json({ 
-        error: 'No file provided' 
+        error: 'Invalid or missing service_type. Must be: ringkasan, konflik, or perubahan' 
       }, { status: 400 });
     }
 
-    // Validate file type
-    if (!ALLOWED_FILE_TYPES.includes(file.type)) {
-      return NextResponse.json({ 
-        error: `Unsupported file type: ${file.type}. Supported types: PDF, HTML, DOC, DOCX` 
-      }, { status: 400 });
+    // Get files based on service type
+    let files: File[];
+    if (serviceType === 'perubahan') {
+      // For document comparison, we need exactly 2 files
+      const file1 = formData.get('file1') as File;
+      const file2 = formData.get('file2') as File;
+      
+      if (!file1 || !file2) {
+        return NextResponse.json({ 
+          error: 'Deteksi Perubahan requires exactly 2 files (file1 and file2)' 
+        }, { status: 400 });
+      }
+      files = [file1, file2];
+    } else {
+      // For summary and conflict detection, we need 1 file
+      const file = formData.get('file') as File;
+      
+      if (!file) {
+        return NextResponse.json({ 
+          error: `${serviceType === 'ringkasan' ? 'Ringkasan Bahasa Sederhana' : 'Deteksi Konflik'} requires exactly 1 file` 
+        }, { status: 400 });
+      }
+      files = [file];
     }
 
-    // Validate file size
-    if (file.size > MAX_FILE_SIZE) {
-      const sizeMB = Math.round(file.size / (1024 * 1024));
-      return NextResponse.json({ 
-        error: `File too large: ${sizeMB}MB. Maximum size: 50MB` 
-      }, { status: 400 });
+    // Validate all files
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      const fileLabel = files.length > 1 ? `file${i + 1}` : 'file';
+      
+      // Validate file type
+      if (!ALLOWED_FILE_TYPES.includes(file.type)) {
+        return NextResponse.json({ 
+          error: `${fileLabel}: Unsupported file type: ${file.type}. Supported types: PDF, HTML, DOC, DOCX` 
+        }, { status: 400 });
+      }
+
+      // Validate file size
+      if (file.size > MAX_FILE_SIZE) {
+        const sizeMB = Math.round(file.size / (1024 * 1024));
+        return NextResponse.json({ 
+          error: `${fileLabel}: File too large: ${sizeMB}MB. Maximum size: 50MB` 
+        }, { status: 400 });
+      }
+      
+      // Service-specific validation
+      if (serviceType === 'perubahan' && file.type !== 'application/pdf') {
+        return NextResponse.json({
+          error: `${fileLabel}: Deteksi Perubahan currently supports PDF files only`
+        }, { status: 400 });
+      }
     }
 
-    // Use original filename or provided title
-    const documentTitle = title || file.name.replace(/\.[^/.]+$/, ''); // Remove file extension
-
-    console.log(`Processing file: ${file.name} (${Math.round(file.size / 1024)}KB, ${file.type})`);
+    console.log(`Processing ${files.length} file(s) for service: ${serviceType}`);
+    files.forEach((file, i) => {
+      console.log(`File ${i + 1}: ${file.name} (${Math.round(file.size / 1024)}KB, ${file.type})`);
+    });
 
     const supabase = createClient();
-
-    // Generate unique filename to avoid conflicts
     const timestamp = Date.now();
-    const fileExtension = file.name.split('.').pop() || 'pdf';
-    const fileName = `${timestamp}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
-
+    
+    // Arrays to store created documents and versions
+    const createdDocuments: Document[] = [];
+    const createdVersions: DocumentVersion[] = [];
+    const uploadedPaths: string[] = [];
+    
     try {
-      // Upload file to Supabase Storage
-      const { data: uploadData, error: uploadError } = await supabase.storage
-        .from('documents')
-        .upload(fileName, file, {
-          cacheControl: '3600',
-          upsert: false,
-          contentType: file.type
-        });
+      // Process each file atomically
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i];
+        const fileLabel = files.length > 1 ? ` (Document ${i + 1})` : '';
+        const documentTitle = title ? `${title}${fileLabel}` : file.name.replace(/\.[^/.]+$/, '');
+        
+        // Generate unique filename
+        const fileExtension = file.name.split('.').pop() || 'pdf';
+        const fileName = `${timestamp}-${i + 1}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+        try {
+          // Upload file to Supabase Storage
+          const { data: uploadData, error: uploadError } = await supabase.storage
+            .from('documents')
+            .upload(fileName, file, {
+              cacheControl: '3600',
+              upsert: false,
+              contentType: file.type
+            });
 
-      if (uploadError) {
-        console.error('Storage upload error:', uploadError);
-        return NextResponse.json({ 
-          error: `Upload failed: ${uploadError.message}` 
-        }, { status: 500 });
+          if (uploadError) {
+            console.error(`File ${i + 1} storage upload error:`, uploadError);
+            throw new Error(`File ${i + 1} upload failed: ${uploadError.message}`);
+          }
+
+          console.log(`File ${i + 1} uploaded to storage: ${uploadData.path}`);
+          uploadedPaths.push(uploadData.path);
+
+          // Create document record
+          const { data: document, error: docError } = await supabase
+            .from('documents')
+            .insert({
+              title: documentTitle,
+              kind: kind || 'uploaded',
+              jurisdiction: jurisdiction || null,
+              language: 'id'
+            })
+            .select()
+            .single();
+
+          if (docError) {
+            console.error(`Document ${i + 1} creation error:`, docError);
+            throw new Error(`Failed to create document record: ${docError.message}`);
+          }
+
+          console.log(`Document ${i + 1} created: ${document.id}`);
+          createdDocuments.push(document);
+
+          // Create document version record
+          const { data: version, error: versionError } = await supabase
+            .from('document_versions')
+            .insert({
+              document_id: document.id,
+              version_label: 'v1',
+              storage_path: uploadData.path,
+              processing_status: 'pending',
+              processing_progress: 0,
+              pages: null
+            })
+            .select()
+            .single();
+
+          if (versionError) {
+            console.error(`Version ${i + 1} creation error:`, versionError);
+            throw new Error(`Failed to create version record: ${versionError.message}`);
+          }
+
+          console.log(`Version ${i + 1} created: ${version.id}`);
+          createdVersions.push(version);
+
+        } catch (fileError) {
+          console.error(`Error processing file ${i + 1}:`, fileError);
+          throw fileError; // Re-throw to trigger cleanup
+        }
       }
 
-      console.log(`File uploaded to storage: ${uploadData.path}`);
-
-      // Create document record
-      const { data: document, error: docError } = await supabase
-        .from('documents')
+      // Create service job record
+      const versionIds = createdVersions.map(v => v.id);
+      const { data: serviceJob, error: jobError } = await supabase
+        .from('service_jobs')
         .insert({
-          title: documentTitle,
-          kind: kind || 'uploaded',
-          jurisdiction: jurisdiction || null
+          service_type: serviceType as ServiceTypeUnion,
+          status: 'pending',
+          progress: 0,
+          version_ids: versionIds,
+          result_data: null,
+          is_public: false
         })
         .select()
         .single();
 
-      if (docError) {
-        console.error('Document creation error:', docError);
-        
-        // Clean up uploaded file
-        await supabase.storage
-          .from('documents')
-          .remove([uploadData.path]);
-
-        return NextResponse.json({ 
-          error: `Failed to create document record: ${docError.message}` 
-        }, { status: 500 });
+      if (jobError) {
+        console.error('Service job creation error:', jobError);
+        throw new Error(`Failed to create service job: ${jobError.message}`);
       }
 
-      console.log(`Document created: ${document.id}`);
+      console.log(`Service job created: ${serviceJob.id}`);
 
-      // Create document version record
-      const { data: version, error: versionError } = await supabase
-        .from('document_versions')
-        .insert({
-          document_id: document.id,
-          version_label: 'v1',
-          storage_path: uploadData.path,
-          processing_status: 'pending',
-          pages: null // Will be updated after processing
-        })
-        .select()
-        .single();
-
-      if (versionError) {
-        console.error('Version creation error:', versionError);
-        
-        // Clean up document and uploaded file
-        await supabase.from('documents').delete().eq('id', document.id);
-        await supabase.storage
-          .from('documents')
-          .remove([uploadData.path]);
-
-        return NextResponse.json({ 
-          error: `Failed to create version record: ${versionError.message}` 
-        }, { status: 500 });
-      }
-
-      console.log(`Version created: ${version.id}`);
-
-      // Trigger background processing (async, don't wait)
+      // Trigger background processing
       const baseUrl = request.headers.get('origin') || 
                      process.env.NEXT_PUBLIC_BASE_URL || 
-                     'http://localhost:3002';
+                     'http://localhost:3000';
 
-      console.log(`Triggering background processing at: ${baseUrl}/api/process`);
+      console.log(`Triggering ${serviceType} processing at: ${baseUrl}/api/process-service`);
       
-      fetch(`${baseUrl}/api/process`, {
+      // Don't wait for processing trigger - it's async
+      fetch(`${baseUrl}/api/process-service`, {
         method: 'POST',
         headers: { 
           'Content-Type': 'application/json',
           'User-Agent': 'internal-processing'
         },
-        body: JSON.stringify({ version_id: version.id })
+        body: JSON.stringify({ job_id: serviceJob.id })
       }).then(response => {
         if (response.ok) {
           console.log('Background processing triggered successfully');
@@ -151,44 +240,76 @@ export async function POST(request: NextRequest) {
         }
       }).catch(error => {
         console.error('Background processing trigger failed:', error);
-        // Mark version as failed to process
+        // Mark job as failed
         supabase
-          .from('document_versions')
-          .update({ processing_status: 'failed' })
-          .eq('id', version.id)
-          .then(() => console.log('Version marked as failed'));
+          .rpc('fail_job_processing', {
+            p_job_id: serviceJob.id,
+            p_error_message: `Processing trigger failed: ${error.message}`
+          })
+          .then(() => console.log('Job marked as failed'));
       });
-
-      console.log('Background processing triggered');
 
       return NextResponse.json({
         success: true,
-        message: 'File uploaded successfully, processing started',
-        document: {
-          id: document.id,
-          title: document.title,
-          kind: document.kind,
-          jurisdiction: document.jurisdiction,
-          created_at: document.created_at
-        },
-        version: {
+        message: `${files.length} file(s) uploaded successfully for ${serviceType}, processing started`,
+        job_id: serviceJob.id,
+        service_type: serviceType,
+        documents: createdDocuments.map(doc => ({
+          id: doc.id,
+          title: doc.title,
+          kind: doc.kind,
+          jurisdiction: doc.jurisdiction,
+          created_at: doc.created_at
+        })),
+        versions: createdVersions.map(version => ({
           id: version.id,
           version_label: version.version_label,
           processing_status: version.processing_status,
           created_at: version.created_at
-        },
-        file_info: {
+        })),
+        files_info: files.map((file, i) => ({
           original_name: file.name,
           size_bytes: file.size,
           type: file.type,
-          storage_path: uploadData.path
-        }
+          storage_path: uploadedPaths[i]
+        }))
       });
 
-    } catch (storageError) {
-      console.error('Storage operation failed:', storageError);
+    } catch (atomicError) {
+      console.error('Atomic upload operation failed:', atomicError);
+      
+      // Rollback: Clean up any uploaded files and created records
+      console.log('Starting rollback cleanup...');
+      
+      // Clean up storage files
+      if (uploadedPaths.length > 0) {
+        try {
+          await supabase.storage
+            .from('documents')
+            .remove(uploadedPaths);
+          console.log(`Cleaned up ${uploadedPaths.length} uploaded file(s)`);
+        } catch (cleanupError) {
+          console.error('Failed to clean up uploaded files:', cleanupError);
+        }
+      }
+      
+      // Clean up database records (cascading deletes will handle versions)
+      if (createdDocuments.length > 0) {
+        try {
+          const documentIds = createdDocuments.map(doc => doc.id);
+          await supabase
+            .from('documents')
+            .delete()
+            .in('id', documentIds);
+          console.log(`Cleaned up ${documentIds.length} document record(s)`);
+        } catch (cleanupError) {
+          console.error('Failed to clean up document records:', cleanupError);
+        }
+      }
+      
       return NextResponse.json({ 
-        error: 'Storage operation failed' 
+        success: false,
+        error: atomicError instanceof Error ? atomicError.message : 'Upload operation failed'
       }, { status: 500 });
     }
 
@@ -197,12 +318,14 @@ export async function POST(request: NextRequest) {
     
     if (error instanceof Error && error.message.includes('FormData')) {
       return NextResponse.json({ 
+        success: false,
         error: 'Invalid form data' 
       }, { status: 400 });
     }
     
     return NextResponse.json({ 
-      error: 'Internal server error' 
+      success: false,
+      error: 'Internal server error'
     }, { status: 500 });
   }
 }

@@ -69,12 +69,13 @@ export const useUploadWithProgress = (): UseUploadWithProgressReturn => {
               ...upload, 
               status: 'uploaded', 
               progress: 100,
-              versionId: (response.data as any)?.version?.id 
+              versionId: (response.data as any)?.version?.id,
+              jobId: (response.data as any)?.job?.id 
             }
           : upload
       ));
       
-      return response.data; // Contains document and version info
+      return response.data; // Contains document, version, and job info
       
     } catch (error) {
       const errorMessage = error instanceof Error 
